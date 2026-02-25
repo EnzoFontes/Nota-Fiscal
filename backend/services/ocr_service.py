@@ -141,6 +141,13 @@ def preprocess_image(image_bytes: bytes) -> np.ndarray:
     if img is None:
         return np.zeros((100, 100), dtype=np.uint8)
 
+    # Cap input size to avoid OOM on large phone photos (>3000px side)
+    _MAX_INPUT = 3000
+    h0, w0 = img.shape[:2]
+    if max(h0, w0) > _MAX_INPUT:
+        scale = _MAX_INPUT / max(h0, w0)
+        img = cv2.resize(img, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+
     if _is_screenshot(img):
         # ── Screenshot / PDF-render path ─────────────────────────────────────
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -201,14 +208,24 @@ def preprocess_image(image_bytes: bytes) -> np.ndarray:
 
 
 def _run_ocr(pil_img: Image.Image, config: str) -> tuple[str, float]:
-    """Run Tesseract with given config, return (text, avg_confidence)."""
+    """Run Tesseract once, returning (text, avg_confidence) from a single call."""
     data = pytesseract.image_to_data(
         pil_img, lang=_OCR_LANG, config=config,
         output_type=pytesseract.Output.DICT,
     )
     confidences = [int(c) for c in data['conf'] if int(c) > 0]
     avg_conf = sum(confidences) / len(confidences) if confidences else 0
-    text = pytesseract.image_to_string(pil_img, lang=_OCR_LANG, config=config)
+
+    # Reconstruct text with line breaks from block/line metadata
+    lines: dict = {}
+    for word, conf, block, par, line in zip(
+        data['text'], data['conf'],
+        data['block_num'], data['par_num'], data['line_num'],
+    ):
+        if str(word).strip() and int(conf) > 0:
+            lines.setdefault((block, par, line), []).append(word)
+    text = '\n'.join(' '.join(words) for words in lines.values())
+
     return text, round(avg_conf, 1)
 
 

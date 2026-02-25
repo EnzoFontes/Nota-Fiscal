@@ -3,6 +3,7 @@ import csv
 import logging
 import xml.etree.ElementTree as ET
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from datetime import datetime
@@ -46,103 +47,104 @@ def _is_pdf(content_type: str, filename: str) -> bool:
 async def upload_document(file: UploadFile = File(...),
                            db: Session = Depends(get_db),
                            current_user: User = Depends(get_current_user)):
-    content = await file.read()
-    ct = (file.content_type or "").lower()
-    fname = file.filename or ""
+    try:
+        content = await file.read()
+        ct = (file.content_type or "").lower()
+        fname = file.filename or ""
 
-    if ct in ("application/xml", "text/xml") or fname.endswith(".xml"):
-        parsed = parse_nfe_xml(content)
+        if ct in ("application/xml", "text/xml") or fname.endswith(".xml"):
+            parsed = parse_nfe_xml(content)
 
-    elif _is_pdf(ct, fname):
-        # ── PDF branch ────────────────────────────────────────────────────────
-        pdf_result = process_pdf(content)
-        text = pdf_result["text"]
-        is_scanned = pdf_result["is_scanned"]
+        elif _is_pdf(ct, fname):
+            # ── PDF branch ────────────────────────────────────────────────────
+            pdf_result = await run_in_threadpool(process_pdf, content)
+            text = pdf_result["text"]
+            is_scanned = pdf_result["is_scanned"]
 
-        if not text.strip():
-            logger.warning("PDF: no text extracted. Saving blank PIX for manual entry.")
-            parsed = parse_pix_receipt("")
-            parsed["tipo"] = "pix"
-        else:
-            if is_pix_receipt(text):
-                parsed = parse_pix_receipt(text)
+            if not text.strip():
+                logger.warning("PDF: no text extracted. Saving blank PIX for manual entry.")
+                parsed = parse_pix_receipt("")
                 parsed["tipo"] = "pix"
             else:
-                parsed = parse_nf_image(text)
-                parsed["tipo"] = "nfce" if is_nfce(text) else "nfe"
+                if is_pix_receipt(text):
+                    parsed = parse_pix_receipt(text)
+                    parsed["tipo"] = "pix"
+                else:
+                    parsed = parse_nf_image(text)
+                    parsed["tipo"] = "nfce" if is_nfce(text) else "nfe"
 
-        parsed["confidence_score"] = 100.0 if not is_scanned else pdf_result.get("confidence", 0.0)
+            parsed["confidence_score"] = 100.0 if not is_scanned else pdf_result.get("confidence", 0.0)
 
-    elif _is_image(ct, fname):
-        # ── Image branch ──────────────────────────────────────────────────────
-        # Step 1: QR code scan (highest priority — exact machine-readable data)
-        qr_data = extract_from_qr(content)
+        elif _is_image(ct, fname):
+            # ── Image branch ──────────────────────────────────────────────────
+            # Run CPU-heavy tasks in a thread pool to avoid blocking the event loop
+            qr_data = await run_in_threadpool(extract_from_qr, content)
+            ocr = await run_in_threadpool(extract_text_from_image, content)
+            text = ocr["text"]
 
-        # Step 2: OCR text extraction
-        ocr = extract_text_from_image(content)
-        text = ocr["text"]
-
-        # Step 3: Merge QR + OCR results (QR wins on overlapping fields)
-        if not text.strip() and not qr_data:
-            logger.warning(f"OCR empty and no QR (confidence={ocr['confidence']}). Saving blank PIX.")
-            parsed = parse_pix_receipt("")
-            parsed["tipo"] = "pix"
-        else:
-            if is_pix_receipt(text) or (qr_data and qr_data.get("tipo") == "pix"):
-                parsed = parse_pix_receipt(text)
+            if not text.strip() and not qr_data:
+                logger.warning(f"OCR empty and no QR (confidence={ocr['confidence']}). Saving blank PIX.")
+                parsed = parse_pix_receipt("")
                 parsed["tipo"] = "pix"
             else:
-                parsed = parse_nf_image(text)
-                parsed["tipo"] = "nfce" if is_nfce(text) else "nfe"
+                if is_pix_receipt(text) or (qr_data and qr_data.get("tipo") == "pix"):
+                    parsed = parse_pix_receipt(text)
+                    parsed["tipo"] = "pix"
+                else:
+                    parsed = parse_nf_image(text)
+                    parsed["tipo"] = "nfce" if is_nfce(text) else "nfe"
 
-            if qr_data:
-                for k, v in qr_data.items():
-                    if v is not None:
-                        parsed[k] = v
-                logger.info(f"QR data merged: {list(qr_data.keys())}")
+                if qr_data:
+                    for k, v in qr_data.items():
+                        if v is not None:
+                            parsed[k] = v
+                    logger.info(f"QR data merged: {list(qr_data.keys())}")
 
-        parsed["confidence_score"] = ocr["confidence"]
+            parsed["confidence_score"] = ocr["confidence"]
 
-        # Step 4: PIX validation
-        if parsed.get("tipo") == "pix" and text.strip():
-            validation = validate_pix_document(text, content)
-            logger.info(f"PIX validation score={validation['score']} valid={validation['is_valid']} warnings={validation['warnings']}")
-            if validation["warnings"]:
-                logger.warning(f"PIX validation warnings: {validation['warnings']}")
-            claude_analysis = analyze_with_claude(text, validation)
-            if claude_analysis:
-                logger.info(f"Claude analysis: {claude_analysis[:200]}")
+            if parsed.get("tipo") == "pix" and text.strip():
+                validation = validate_pix_document(text, content)
+                logger.info(f"PIX validation score={validation['score']} valid={validation['is_valid']}")
+                claude_analysis = await run_in_threadpool(analyze_with_claude, text, validation)
+                if claude_analysis:
+                    logger.info(f"Claude analysis: {claude_analysis[:200]}")
 
-    else:
-        raise HTTPException(
-            status_code=400,
-            detail="Formato não suportado. Use XML, PDF ou imagem (JPG, PNG, WEBP, TIFF)",
-        )
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="Formato não suportado. Use XML, PDF ou imagem (JPG, PNG, WEBP, TIFF)",
+            )
 
-    # SEFAZ validation for NF-e
-    sefaz_status = "nao_aplicavel"
-    if parsed.get("tipo") == "nfe" and parsed.get("chave_acesso"):
-        result = await validate_chave_acesso(parsed["chave_acesso"])
-        sefaz_status = result["status"]
+        # SEFAZ validation for NF-e
+        sefaz_status = "nao_aplicavel"
+        if parsed.get("tipo") == "nfe" and parsed.get("chave_acesso"):
+            result = await validate_chave_acesso(parsed["chave_acesso"])
+            sefaz_status = result["status"]
 
-    itens = parsed.pop("itens", [])
-    tributos = parsed.pop("tributos", [])
+        itens = parsed.pop("itens", [])
+        tributos = parsed.pop("tributos", [])
 
-    allowed_fields = {c.key for c in NotaFiscal.__table__.columns}
-    nota_data = {k: v for k, v in parsed.items() if k in allowed_fields}
-    nota = NotaFiscal(**nota_data, status_sefaz=sefaz_status,
-                      importado_por=current_user.id)
-    db.add(nota)
-    db.flush()
+        allowed_fields = {c.key for c in NotaFiscal.__table__.columns}
+        nota_data = {k: v for k, v in parsed.items() if k in allowed_fields}
+        nota = NotaFiscal(**nota_data, status_sefaz=sefaz_status,
+                          importado_por=current_user.id)
+        db.add(nota)
+        db.flush()
 
-    for item in itens:
-        db.add(ItemNota(nota_id=nota.id, **item))
-    for trib in tributos:
-        db.add(TributoNota(nota_id=nota.id, **trib))
+        for item in itens:
+            db.add(ItemNota(nota_id=nota.id, **item))
+        for trib in tributos:
+            db.add(TributoNota(nota_id=nota.id, **trib))
 
-    db.commit()
-    db.refresh(nota)
-    return nota
+        db.commit()
+        db.refresh(nota)
+        return nota
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Upload error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Erro ao processar arquivo: {str(e)}")
 
 
 @router.post("/novo-pix", response_model=NotaFiscalOut)
