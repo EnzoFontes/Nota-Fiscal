@@ -1,8 +1,8 @@
 FROM python:3.11-slim
 
-# Install Node.js 20
+# Install system dependencies: Node.js 20, Tesseract OCR, libzbar
 RUN apt-get update && \
-    apt-get install -y curl && \
+    apt-get install -y curl tesseract-ocr tesseract-ocr-por libzbar0 libglib2.0-0 && \
     curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
     apt-get install -y nodejs && \
     apt-get clean && rm -rf /var/lib/apt/lists/*

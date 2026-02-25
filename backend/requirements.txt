@@ -13,3 +13,5 @@ opencv-python-headless
 numpy
 python-dotenv
 pydantic[email]
+PyMuPDF
+pyzbar
