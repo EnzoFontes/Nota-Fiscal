@@ -183,8 +183,8 @@ def preprocess_image(image_bytes: bytes) -> np.ndarray:
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
     gray = clahe.apply(gray)
 
-    # Step 6: Denoise (h=7 preserves more fine print detail than h=10)
-    denoised = cv2.fastNlMeansDenoising(gray, h=7)
+    # Step 6: Light blur to reduce noise (GaussianBlur is ~100x faster than NlMeans)
+    denoised = cv2.GaussianBlur(gray, (3, 3), 0)
 
     # Step 7: Adaptive threshold
     # blockSize is scaled to ~1/50 of image height so it remains meaningful
@@ -231,24 +231,14 @@ def _run_ocr(pil_img: Image.Image, config: str) -> tuple[str, float]:
 
 def extract_text_from_image(image_bytes: bytes) -> dict:
     """
-    Run Tesseract OCR with two PSM modes; return the result with higher confidence.
-
-    PSM 4 (single column) suits PIX/bank screenshots.
-    PSM 6 (block of text) suits printed NFC-e / NF-e receipts.
+    Run Tesseract OCR and return extracted text with confidence score.
+    Uses PSM 6 (uniform block) which works well for both receipts and screenshots.
     """
     try:
         processed = preprocess_image(image_bytes)
         pil_img = Image.fromarray(processed)
 
-        text4, conf4 = _run_ocr(pil_img, _TESS_CONFIG_COLUMN)
-        text6, conf6 = _run_ocr(pil_img, _TESS_CONFIG_BLOCK)
-
-        if conf6 > conf4 + 2:
-            text, avg_confidence = text6, conf6
-            logger.info(f'OCR psm=6 chosen (conf6={conf6} > conf4={conf4})')
-        else:
-            text, avg_confidence = text4, conf4
-            logger.info(f'OCR psm=4 chosen (conf4={conf4} >= conf6={conf6})')
+        text, avg_confidence = _run_ocr(pil_img, _TESS_CONFIG_BLOCK)
 
         logger.info(f'OCR lang={_OCR_LANG} confidence={avg_confidence:.1f}%% chars={len(text)}')
         logger.debug(f'OCR text:\n{text}')
