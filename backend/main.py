@@ -1,6 +1,9 @@
 import logging
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from db import engine, Base
 from models import models  # noqa: F401 — registers all ORM models
@@ -28,9 +31,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(auth.router)
-app.include_router(notas.router)
-app.include_router(dashboard.router)
+# All API routes live under /api
+app.include_router(auth.router, prefix="/api")
+app.include_router(notas.router, prefix="/api")
+app.include_router(dashboard.router, prefix="/api")
 
 
 @app.on_event("startup")
@@ -67,3 +71,19 @@ async def seed_admin():
 @app.get("/health", tags=["health"])
 async def health():
     return {"status": "ok"}
+
+
+# Serve the compiled React frontend (built by `npm run build`)
+_DIST = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
+
+_assets = os.path.join(_DIST, "assets")
+if os.path.isdir(_assets):
+    app.mount("/assets", StaticFiles(directory=_assets), name="assets")
+
+
+@app.get("/{full_path:path}", include_in_schema=False)
+async def serve_spa(full_path: str):
+    fp = os.path.join(_DIST, full_path)
+    if os.path.isfile(fp):
+        return FileResponse(fp)
+    return FileResponse(os.path.join(_DIST, "index.html"))
