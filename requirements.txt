@@ -1,0 +1,28 @@
+# Leitor de Nota Fiscal — dependências
+# Instale com: pip install -r requirements.txt
+
+# Backend core
+fastapi
+uvicorn[standard]
+sqlalchemy
+
+# Auth
+passlib[bcrypt]
+python-jose[cryptography]
+
+# Upload de arquivos
+python-multipart
+
+# HTTP client (consulta SEFAZ)
+httpx
+
+# Imagens (necessário para OCR)
+pillow
+
+# OCR — instale somente se for processar fotos/imagens
+# Também precisa do Tesseract instalado no sistema:
+#   Windows → https://github.com/UB-Mannheim/tesseract/wiki (marque "Portuguese")
+#   Ubuntu  → sudo apt install tesseract-ocr tesseract-ocr-por
+pytesseract
+opencv-python-headless
+numpy

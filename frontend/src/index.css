@@ -1,0 +1,106 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* { box-sizing: border-box; }
+body { font-family: 'Inter', sans-serif; background: #fff; color: #0D0D0D; }
+h1, h2, h3, h4, .font-display { font-family: 'Space Grotesk', sans-serif; }
+
+/* ── Page fade-in ─────────────────────────────────────────────────────── */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+main, .page-enter {
+  animation: fadeInUp 0.28s ease-out both;
+}
+
+/* ── Skeleton shimmer ─────────────────────────────────────────────────── */
+@keyframes shimmer {
+  0%   { background-position: -400px 0; }
+  100% { background-position:  400px 0; }
+}
+
+.skeleton {
+  background: linear-gradient(90deg, #f5f5f5 25%, #ebebeb 50%, #f5f5f5 75%);
+  background-size: 800px 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 2px;
+}
+
+/* ── Smooth scrollbar ─────────────────────────────────────────────────── */
+::-webkit-scrollbar        { width: 4px; height: 4px; }
+::-webkit-scrollbar-track  { background: transparent; }
+::-webkit-scrollbar-thumb  { background: #e0e0e0; border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: #c5c5c5; }
+
+/* ── Input focus ring ─────────────────────────────────────────────────── */
+input:focus, textarea:focus, select:focus {
+  outline: none;
+}
+
+/* ── Button ripple feel ───────────────────────────────────────────────── */
+button {
+  cursor: pointer;
+}
+
+/* ── Smooth nav transitions ───────────────────────────────────────────── */
+a, button { transition-property: color, background-color, border-color, opacity, transform, box-shadow; transition-duration: 150ms; transition-timing-function: ease; }
+
+/* ── Stats card hover ─────────────────────────────────────────────────── */
+.stats-card {
+  transition: transform 200ms ease, box-shadow 200ms ease;
+}
+.stats-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.07);
+}
+
+/* ── Table row appear ─────────────────────────────────────────────────── */
+@keyframes rowIn {
+  from { opacity: 0; transform: translateX(-4px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+tbody tr {
+  animation: rowIn 0.2s ease-out both;
+}
+
+tbody tr:nth-child(1)  { animation-delay: 0ms; }
+tbody tr:nth-child(2)  { animation-delay: 30ms; }
+tbody tr:nth-child(3)  { animation-delay: 60ms; }
+tbody tr:nth-child(4)  { animation-delay: 90ms; }
+tbody tr:nth-child(5)  { animation-delay: 120ms; }
+tbody tr:nth-child(6)  { animation-delay: 150ms; }
+tbody tr:nth-child(7)  { animation-delay: 180ms; }
+tbody tr:nth-child(8)  { animation-delay: 210ms; }
+tbody tr:nth-child(9)  { animation-delay: 240ms; }
+tbody tr:nth-child(10) { animation-delay: 270ms; }
+
+/* ── Upload zone ──────────────────────────────────────────────────────── */
+@keyframes borderPulse {
+  0%, 100% { border-color: #e5e5e5; }
+  50%       { border-color: #dc2626; }
+}
+
+.upload-dragging {
+  animation: borderPulse 1s ease-in-out infinite;
+}
+
+/* ── Spinner ──────────────────────────────────────────────────────────── */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+.animate-spin { animation: spin 0.8s linear infinite; }
+
+/* ── Brand panel dot grid (Login) ─────────────────────────────────────── */
+@keyframes dotFloat {
+  0%, 100% { opacity: 0.15; transform: scale(1); }
+  50%       { opacity: 0.35; transform: scale(1.4); }
+}
+
+.brand-dot {
+  animation: dotFloat var(--dur, 3s) ease-in-out infinite;
+  animation-delay: var(--delay, 0s);
+}
